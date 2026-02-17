@@ -1,0 +1,31 @@
+# VS Code
+.vscode/
+
+# Build output
+*.exe
+*.out
+*.o
+*.obj
+*.a
+*.lib
+
+# CMake
+build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# IDE
+*.sln
+*.vcxproj*
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+*.log
+*.tmp
+*~
