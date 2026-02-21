@@ -1,8 +1,65 @@
 #include <cstddef>
 #include <iostream>
 #include <string>
-#include <vector>
 #include <iomanip>
+
+template <typename T>
+class Vector {
+private:
+    T* data_;
+    size_t size_;
+    size_t capacity_;
+
+    void grow(size_t new_cap) {
+        T* new_data = new T[new_cap];
+        for (size_t i = 0; i < size_; ++i) {
+            new_data[i] = data_[i];
+        }
+        delete[] data_;
+        data_ = new_data;
+        capacity_ = new_cap;
+    }
+
+public:
+    Vector() : data_(nullptr), size_(0), capacity_(0) {}
+    Vector(const Vector&) = delete;
+    Vector& operator=(const Vector&) = delete;
+
+    ~Vector() { delete[] data_; }
+
+    void reserve(size_t cap) {
+        if (cap > capacity_) {
+            grow(cap);
+        }
+    }
+
+    void push_back(const T& val) {
+        if (size_ == capacity_) {
+            grow(capacity_ == 0 ? 1 : capacity_ * 2);
+        }
+        data_[size_++] = val;
+    }
+
+    template <typename It>
+    void insert(T* pos, It first, It last) {
+        size_t count = 0;
+        for (It it = first; it != last; ++it) ++count;
+        if (size_ + count > capacity_) {
+            size_t new_cap = capacity_ == 0 ? count : capacity_;
+            while (new_cap < size_ + count) new_cap *= 2;
+            grow(new_cap);
+        }
+        for (It it = first; it != last; ++it) {
+            data_[size_++] = *it;
+        }
+    }
+
+    T* end() { return data_ + size_; }
+    T* data() { return data_; }
+    size_t size() const { return size_; }
+    T& operator[](size_t idx) { return data_[idx]; }
+    const T& operator[](size_t idx) const { return data_[idx]; }
+};
 
 struct Node {
     size_t offset;
@@ -15,9 +72,9 @@ const size_t MAX_NODES = 1000000;
 
 int heads[MAX_KEYS];
 int tails[MAX_KEYS];
-std::vector<Node> pool;
+Vector<Node> pool;
 
-std::vector<char> text_pool;
+Vector<char> text_pool;
 
 int main() {
     std::ios::sync_with_stdio(false);
@@ -66,4 +123,3 @@ int main() {
     }
     return 0;
 }
-
