@@ -1,7 +1,10 @@
 #include <cstddef>
 #include <iostream>
-#include <string>
+#include <utility>
 #include <iomanip>
+#include <iomanip>
+
+constexpr size_t INDEX_RANGE = 1000000;
 
 template <typename T>
 class Vector {
@@ -22,16 +25,38 @@ private:
 
 public:
     Vector() : data_(nullptr), size_(0), capacity_(0) {}
-    Vector(const Vector&) = delete;
-    Vector& operator=(const Vector&) = delete;
+
+    Vector(const Vector& other) : data_(new T[other.capacity_]), size_(other.size_), capacity_(other.capacity_) {
+        for (size_t i = 0; i < size_; ++i) {
+            data_[i] = other.data_[i];
+        }
+    }
+
+    Vector& operator=(Vector&& other) noexcept {
+        if (this != &other) {
+            delete[] data_;
+            data_ = std::exchange(other.data_, nullptr);
+            size_ = std::exchange(other.size_, 0);
+            capacity_ = std::exchange(other.capacity_, 0);
+        }
+        return *this;
+    }
+    
+    Vector& operator=(const Vector& other) {
+        if (this != &other) {
+            Vector temp(other);
+            std::swap(data_, temp.data_);
+            std::swap(size_, temp.size_);
+            std::swap(capacity_, temp.capacity_);
+        }
+        return *this;
+    }
+
+    Vector(Vector&& other) noexcept : data_(std::exchange(other.data_, nullptr)), size_(std::exchange(other.size_, 0)), capacity_(std::exchange(other.capacity_, 0)) {}
 
     ~Vector() { delete[] data_; }
 
-    void reserve(size_t cap) {
-        if (cap > capacity_) {
-            grow(cap);
-        }
-    }
+    void clear() { size_ = 0; }
 
     void push_back(const T& val) {
         if (size_ == capacity_) {
@@ -40,20 +65,14 @@ public:
         data_[size_++] = val;
     }
 
-    template <typename It>
-    void insert(T* pos, It first, It last) {
-        size_t count = 0;
-        for (It it = first; it != last; ++it) ++count;
-        if (size_ + count > capacity_) {
-            size_t new_cap = capacity_ == 0 ? count : capacity_;
-            while (new_cap < size_ + count) new_cap *= 2;
-            grow(new_cap);
+    void resize(size_t new_size) {
+        if (new_size > capacity_) {
+            grow(new_size);
         }
-        for (It it = first; it != last; ++it) {
-            data_[size_++] = *it;
-        }
+        size_ = new_size;
     }
 
+    T* begin() { return data_; }
     T* end() { return data_ + size_; }
     T* data() { return data_; }
     size_t size() const { return size_; }
@@ -61,65 +80,97 @@ public:
     const T& operator[](size_t idx) const { return data_[idx]; }
 };
 
-struct Node {
-    size_t offset;
-    size_t length;
-    int next;
+class String : public Vector<char> {
+public:
+    bool getline(std::istream& in, char delimiter = '\n') {
+        clear();
+        char c;
+        while (in.get(c)) {
+            if (c == delimiter) {
+                return true;
+            }
+            push_back(c);
+        }
+        return size() > 0;
+    }
 };
 
-const size_t MAX_KEYS = 1000000;
-const size_t MAX_NODES = 1000000;
+template <typename StringType>
+size_t stringToInt(const StringType& str) {
+    size_t result = 0;
+    for (size_t i = 0; i < str.size(); ++i) {
+        if (str[i] < '0' || str[i] > '9') return INDEX_RANGE;
+        result = result * 10 + (str[i] - '0');
+    }
+    return result;
+}
 
-int heads[MAX_KEYS];
-int tails[MAX_KEYS];
-Vector<Node> pool;
 
-Vector<char> text_pool;
+template <typename InIter, typename OutIter, typename GetKey>
+void countingSort(
+    InIter inFirst, 
+    InIter inLast, 
+    OutIter outFirst, 
+    size_t keyCount, 
+    GetKey getKey
+) {
+    Vector<size_t> count;
+    count.resize(keyCount);
+
+    for (size_t i = 0; i < keyCount; ++i) {
+        count[i] = 0;
+    }
+
+    for (InIter it = inFirst; it != inLast; ++it) {
+        ++count[getKey(*it)];
+    }
+    for (size_t i = 1; i < keyCount; ++i) {
+        count[i] += count[i - 1];
+    }
+    for (InIter it = inLast; it != inFirst; ) {
+        --it;
+        const size_t key = getKey(*it);
+        count[key]--;
+        outFirst[count[key]] = std::move(*it);
+    }
+}
+
 
 int main() {
     std::ios::sync_with_stdio(false);
-    std::cin.tie(nullptr);
+    std::cin.tie(NULL);
+    struct EntryPair {
+        int key;
+        String value;
+    };
 
-    std::fill(heads, heads + MAX_KEYS, -1);
-    std::fill(tails, tails + MAX_KEYS, -1);
-
+    Vector<EntryPair> entries;
+    Vector<EntryPair> sortedEntries;
     int key;
-    int pool_idx = 0;
-    std::string buffer;
-
-    pool.reserve(MAX_NODES);
-    text_pool.reserve(80 * 1024 * 1024);
+    String value;
 
     while (std::cin >> key) {
         std::cin.ignore();
-        if (!std::getline(std::cin, buffer)) {
+        if (!value.getline(std::cin)) {
             break;
         }
-        size_t offset = text_pool.size();
-        text_pool.insert(text_pool.end(), buffer.begin(), buffer.end());
-
-        int current_node_idx = static_cast<int>(pool.size());
-
-        pool.push_back({offset, buffer.size(), -1});
-
-        if (heads[key] == -1) {
-            heads[key] = current_node_idx;
-        } else {
-            pool[tails[key]].next = current_node_idx;
-        }
-        tails[key] = current_node_idx;
+        if (value.size() == 0) continue;
+        entries.push_back({key, std::move(value)});
     }
 
-    for (int i = 0; i <= MAX_KEYS - 1; ++i) {
-        int cur_index = heads[i];
-        while (cur_index != -1) {
-            const Node& node = pool[cur_index];
-            std::cout << std::setfill('0') << std::setw(6) << i << "\t";
-            std::cout.write(text_pool.data() + node.offset, node.length);
-            std::cout << "\n";
-            cur_index = node.next;
-        }
- 
+    sortedEntries.resize(entries.size());
+
+    auto getKey = [](const EntryPair& entry) -> size_t {
+        return static_cast<size_t>(entry.key);
+    };
+
+    countingSort(entries.begin(), entries.end(), sortedEntries.begin(), INDEX_RANGE, getKey);
+
+    for (size_t i = 0; i < sortedEntries.size(); ++i) {
+        std::cout << std::setfill('0') << std::setw(6) << sortedEntries[i].key << '\t';
+        for (size_t j = 0; j < sortedEntries[i].value.size(); ++j)
+            std::cout << sortedEntries[i].value[j];
+        std::cout << '\n';
     }
     return 0;
 }
