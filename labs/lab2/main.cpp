@@ -11,6 +11,7 @@ private:
     Digitizer digitizer{};
 
     void clear(Node *node) {
+        // Need to swap recursion to iterative
         if (node->left->diffBit > node->diffBit) {
             clear(node->left);
         }
