@@ -1,9 +1,9 @@
-template <class Key, class T, class Digitizer>
+template <class key, class T, class Digitizer>
 class PatriciaTree final {
 private:
     struct Node {
         std::pair <key, T> value{};
-        Node *left{}, *right{}, *parent{};
+        Node *left{}, *right{};
         ptrdiff_t diffBit{-1};
     }
     Node *root{};
@@ -88,21 +88,21 @@ public:
     }
 
     constexpr ptrdiff_t operator()(
-        const string &firtst,
+        const string &first,
         const string &second
     ) const noexcept {
-        const auto lengthFirst{ssize(firtst)},
+        const auto lengthFirst{ssize(first)},
 lengthSecond{ssize(second)};
     if (lengthFirst > lengthSecond)
         return (*this)(second, first);
     
     for (auto i{0Z}; i < lengthFirst; ++i) {
-        assert(isLower(firtst[i], classic) && isLower(second[i], classic));
+        assert(isLower(first[i], classic) && isLower(second[i], classic));
         if (first[i] != second[i])
             return countr_zero(first[i] ^ second[i]) + i * charBits;
     }
 
-    if (lenghtFirst == lengthSecond)
+    if (lengthFirst == lengthSecond)
         return -1;
     
     return countr_zero(first[lengthFirst] ^ second[lengthFirst]) + lengthFirst * charBits;
