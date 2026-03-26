@@ -1,24 +1,48 @@
-template <class key, class T, class Digitizer>
+template <class Key, class T, class Digitizer>
 class PatriciaTree final {
 private:
     struct Node {
-        std::pair <key, T> value{};
-        Node *left{}, *right{};
+        std::pair <Key, T> value{};
+        Node *left{}, *right{}, *parent{};
         ptrdiff_t diffBit{-1};
-    }
+    };
+
     Node *root{};
     size_t size{0};
     Digitizer digitizer{};
 
-    void clear(Node *node) {
-        // Need to swap recursion to iterative
-        if (node->left->diffBit > node->diffBit) {
-            clear(node->left);
+    void clear(Node *nodeToDelete) {
+        if (!nodeToDelete)
+            return;
+
+        Node* current = nodeToDelete->left;
+        if (current != nodeToDelete) {
+            while (true) {
+                if (current->left->diffBit > current->diffBit) {
+                    current = current->left;
+                    continue;
+                }
+                if (current->right->diffBit > current->diffBit) {
+                    current = current->right;
+                    continue;
+                }
+
+                if (current == nodeToDelete) {
+                    break;
+                }
+
+                Node* p = current->parent;
+                if (p->left == current)
+                    p->left = nodeToDelete;
+                else
+                    p->right = nodeToDelete;
+
+                Node* toDelete = current;
+                current = p;
+                delete toDelete;
+            }
         }
-        if (node->right->diffBit > node->diffBit) {
-            clear(node->right);
-        }
-        delete node;
+        delete nodeToDelete;
     }
 
 public:
@@ -84,7 +108,7 @@ public:
         if (charIndex >= ssize(str))
             return false;
     
-        assert(isLower(str[charIndex], classic));
+        assert(std::isLower(str[charIndex], classic));
         return bool(str[charIndex] >> (bit % charBits) & 1);
     }
 
@@ -98,7 +122,7 @@ lengthSecond{ssize(second)};
         return (*this)(second, first);
     
     for (auto i{0Z}; i < lengthFirst; ++i) {
-        assert(isLower(first[i], classic) && isLower(second[i], classic));
+        assert(std::isLower(first[i], classic) && std::isLower(second[i], classic));
         if (first[i] != second[i])
             return countr_zero(first[i] ^ second[i]) + i * charBits;
     }
