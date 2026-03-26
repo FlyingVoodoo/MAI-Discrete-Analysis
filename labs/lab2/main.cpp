@@ -74,11 +74,48 @@ public:
     }
 
     bool insert(const Key &key, const T &value) {
-        // TODO: implement insert
+        Node *current = root;
+        Node *next = root->left;
+        while (next->diffBit > current->diffBit) {
+            current = next;
+            next = digitizer(key, next->diffBit) ? next->right : next->left;
+        }
+        if (next->value.first == key)
+            return false;
+        const ptrdiff_t newDiffBit = digitizer(key, next->value.first);
+
+        current = root;
+        next = root->left;
+        while (next->diffBit > current->diffBit && next->diffBit < newDiffBit) {
+            current = next;
+            next = digitizer(key, next->diffBit) ? next->right : next->left;
+        }
+
+        Node *newNode = new Node{{key, value}, nullptr, nullptr, current, newDiffBit};
+        if (digitizer(key, newDiffBit)) {
+            newNode->right = newNode;
+            newNode->left = next;
+        } else {
+            newNode->left = newNode;
+            newNode->right = next;
+        }
+
+        if (digitizer(key, current->diffBit)) {
+            current->right = newNode;
+        } else {
+            current->left = newNode;
+        }
+
+        if (next->diffBit > newDiffBit) {
+            next->parent = newNode;
+        }
+        ++size;
+        return true;
     }
 
     bool erase(const Key &key) {
         // TODO: implement erase
+        return false;
     }
 
     std::pair<bool, Node*> find(const Key &key) const { 
@@ -108,7 +145,7 @@ public:
         if (charIndex >= ssize(str))
             return false;
     
-        assert(std::isLower(str[charIndex], classic));
+        assert(std::islower(str[charIndex], classic));
         return bool(str[charIndex] >> (bit % charBits) & 1);
     }
 
@@ -122,7 +159,7 @@ lengthSecond{ssize(second)};
         return (*this)(second, first);
     
     for (auto i{0Z}; i < lengthFirst; ++i) {
-        assert(std::isLower(first[i], classic) && std::isLower(second[i], classic));
+        assert(std::islower(first[i], classic) && std::islower(second[i], classic));
         if (first[i] != second[i])
             return countr_zero(first[i] ^ second[i]) + i * charBits;
     }
@@ -130,6 +167,6 @@ lengthSecond{ssize(second)};
     if (lengthFirst == lengthSecond)
         return -1;
     
-    return countr_zero(first[lengthFirst] ^ second[lengthFirst]) + lengthFirst * charBits;
+    return countr_zero(static_cast<unsigned char>(second[lengthFirst])) + lengthFirst * charBits;
     }
 };
