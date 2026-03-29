@@ -2,7 +2,6 @@
 #include <iostream>
 #include <utility>
 #include <iomanip>
-#include <iomanip>
 
 constexpr size_t INDEX_RANGE = 1000000;
 
@@ -16,7 +15,7 @@ private:
     void grow(size_t new_cap) {
         T* new_data = new T[new_cap];
         for (size_t i = 0; i < size_; ++i) {
-            new_data[i] = data_[i];
+            new_data[i] = std::move(data_[i]);
         }
         delete[] data_;
         data_ = new_data;
@@ -80,10 +79,28 @@ public:
     const T& operator[](size_t idx) const { return data_[idx]; }
 };
 
-class String : public Vector<char> {
+class String {
+private:
+    Vector<char> buffer_;
 public:
+    void push_back(char c) {
+        buffer_.push_back(c);
+    }
+
+    size_t size() const {
+        return buffer_.size();
+    }
+
+    char& operator[](size_t idx) {
+        return buffer_[idx];
+    }
+
+    void clear() {
+        buffer_.clear();
+    }
+
     bool getline(std::istream& in, char delimiter = '\n') {
-        clear();
+        buffer_.clear();
         char c;
         while (in.get(c)) {
             if (c == delimiter) {
@@ -94,17 +111,6 @@ public:
         return size() > 0;
     }
 };
-
-template <typename StringType>
-size_t stringToInt(const StringType& str) {
-    size_t result = 0;
-    for (size_t i = 0; i < str.size(); ++i) {
-        if (str[i] < '0' || str[i] > '9') return INDEX_RANGE;
-        result = result * 10 + (str[i] - '0');
-    }
-    return result;
-}
-
 
 template <typename InIter, typename OutIter, typename GetKey>
 void countingSort(
