@@ -1,0 +1,172 @@
+template <class Key, class T, class Digitizer>
+class PatriciaTree final {
+private:
+    struct Node {
+        std::pair <Key, T> value{};
+        Node *left{}, *right{}, *parent{};
+        ptrdiff_t diffBit{-1};
+    };
+
+    Node *root{};
+    size_t size{0};
+    Digitizer digitizer{};
+
+    void clear(Node *nodeToDelete) {
+        if (!nodeToDelete)
+            return;
+
+        Node* current = nodeToDelete->left;
+        if (current != nodeToDelete) {
+            while (true) {
+                if (current->left->diffBit > current->diffBit) {
+                    current = current->left;
+                    continue;
+                }
+                if (current->right->diffBit > current->diffBit) {
+                    current = current->right;
+                    continue;
+                }
+
+                if (current == nodeToDelete) {
+                    break;
+                }
+
+                Node* p = current->parent;
+                if (p->left == current)
+                    p->left = nodeToDelete;
+                else
+                    p->right = nodeToDelete;
+
+                Node* toDelete = current;
+                current = p;
+                delete toDelete;
+            }
+        }
+        delete nodeToDelete;
+    }
+
+public:
+    explicit PatriciaTree(const Digitizer &digitizer = Digitizer()) : digitizer{digitizer} {
+        root = new Node();
+        root->diffBit = -1;
+        root->left = root;
+        root->right = root;
+    }
+
+    ~PatriciaTree() {
+        clear(root);
+    }
+
+    PatriciaTree(const PatriciaTree &other) = delete;
+    PatriciaTree& operator=(const PatriciaTree &other) = delete;
+
+    PatriciaTree(PatriciaTree &&other) noexcept
+        : root{std::exchange(other.root, nullptr)}, size{std::exchange(other.size, 0)}, digitizer{std::move(other.digitizer)} {}
+
+    PatriciaTree& operator=(PatriciaTree &&other) noexcept {
+        if (this != &other) {
+            clear(root);
+            root = std::exchange(other.root, nullptr);
+            size = std::exchange(other.size, 0);
+            digitizer = std::move(other.digitizer);
+        }
+        return *this;
+    }
+
+    bool insert(const Key &key, const T &value) {
+        Node *current = root;
+        Node *next = root->left;
+        while (next->diffBit > current->diffBit) {
+            current = next;
+            next = digitizer(key, next->diffBit) ? next->right : next->left;
+        }
+        if (next->value.first == key)
+            return false;
+        const ptrdiff_t newDiffBit = digitizer(key, next->value.first);
+
+        current = root;
+        next = root->left;
+        while (next->diffBit > current->diffBit && next->diffBit < newDiffBit) {
+            current = next;
+            next = digitizer(key, next->diffBit) ? next->right : next->left;
+        }
+
+        Node *newNode = new Node{{key, value}, nullptr, nullptr, current, newDiffBit};
+        if (digitizer(key, newDiffBit)) {
+            newNode->right = newNode;
+            newNode->left = next;
+        } else {
+            newNode->left = newNode;
+            newNode->right = next;
+        }
+
+        if (digitizer(key, current->diffBit)) {
+            current->right = newNode;
+        } else {
+            current->left = newNode;
+        }
+
+        if (next->diffBit > newDiffBit) {
+            next->parent = newNode;
+        }
+        ++size;
+        return true;
+    }
+
+    bool erase(const Key &key) {
+        // TODO: implement erase
+        return false;
+    }
+
+    std::pair<bool, Node*> find(const Key &key) const { 
+        Node *current = root;
+        Node *next = root->left;
+
+        while (next->diffBit > current->diffBit) {
+            current = next;
+            next = digitizer(key, next->diffBit) ? next->right : next->left;
+        }
+        return {next->value.first == key, next};
+    };
+};
+
+class LatinDigitizer {
+private:
+    static constexpr int charBits{5};
+    static inline const locale
+&classic{locale::classic()};
+
+public:
+    constexpr bool operator()(
+        const string &str,
+        const ptrdiff_t bit
+    ) const noexcept {
+        const ptrdiff_t charIndex = bit / charBits;
+        if (charIndex >= ssize(str))
+            return false;
+    
+        assert(std::islower(str[charIndex], classic));
+        return bool(str[charIndex] >> (bit % charBits) & 1);
+    }
+
+    constexpr ptrdiff_t operator()(
+        const string &first,
+        const string &second
+    ) const noexcept {
+        const auto lengthFirst{ssize(first)},
+lengthSecond{ssize(second)};
+    if (lengthFirst > lengthSecond)
+        return (*this)(second, first);
+    
+    for (auto i{0Z}; i < lengthFirst; ++i) {
+        assert(std::islower(first[i], classic) && std::islower(second[i], classic));
+        if (first[i] != second[i])
+            return countr_zero(first[i] ^ second[i]) + i * charBits;
+    }
+
+    if (lengthFirst == lengthSecond)
+        return -1;
+    
+    return countr_zero(static_cast<unsigned char>(second[lengthFirst])) + lengthFirst * charBits;
+    }
+};
