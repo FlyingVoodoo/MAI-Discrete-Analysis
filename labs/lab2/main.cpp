@@ -323,39 +323,91 @@ private:
         ptrdiff_t diffBit{-1};
     };
 
+    struct PatchRecord {
+        const Node *target;
+        std::streampos pos;
+    };
+
+    struct NodeLocator {
+        const Node *ptr;
+        uint32_t id;
+    };
+
+    struct DfsItem {
+        const Node *node;
+        uint32_t id;
+    };
+
+    struct LoadedNode {
+        Node *node;
+        uint32_t left_id;
+        uint32_t right_id;
+    };
+
     Node *root{nullptr};
     size_t size{0};
     Digitizer digitizer{};
     Normalizer normalizer{};
 
     void clear() {
-        if (root == nullptr)
-            return;
+        if (!root) return;
 
-        Stack<Node*> stack;
-        stack.push(root);
+        Stack<Node*> st;
+        st.push(root);
 
-        while(!stack.empty()) {
-            Node *current = stack.top();
-            stack.pop();
+        while (!st.empty()) {
+            Node* cur = st.top();
+            st.pop();
 
-            if (current->right && current->right->diffBit > current->diffBit)
-                stack.push(current->right);
-            if (current->left && current->left->diffBit > current->diffBit)
-                stack.push(current->left);
+            if (cur->left && cur->left->diffBit > cur->diffBit)
+                st.push(cur->left);
 
-            delete current;
+            if (cur->right && cur->right->diffBit > cur->diffBit)
+                st.push(cur->right);
+
+            delete cur;
         }
 
         root = nullptr;
         size = 0;
     }
 
-    static void saveNode(std::ostream &out, Node *node) {
-        size_t keyLen = node->value.first.size();
+    static void saveNode(std::ostream &out, const Node *node) {
+        uint64_t keyLen = node->value.first.size();
         out.write(reinterpret_cast<const char*>(&keyLen), sizeof(keyLen));
         out.write(node->value.first.data(), keyLen);
         out.write(reinterpret_cast<const char*>(&node->value.second), sizeof(T));
+    }
+
+    static void sortLocators(Vector<NodeLocator>& arr, ptrdiff_t low, ptrdiff_t high) {
+        if (low < high) {
+            ptrdiff_t i = low, j = high;
+            const Node* pivot = arr[(low + high) / 2].ptr;
+            while (i <= j) {
+                while (arr[i].ptr < pivot) i++;
+                while (arr[j].ptr > pivot) j--;
+                if (i <= j) {
+                    NodeLocator temp = arr[i];
+                    arr[i] = arr[j];
+                    arr[j] = temp;
+                    i++;
+                    j--;
+                }
+            }
+            if (low < j) sortLocators(arr, low, j);
+            if (i < high) sortLocators(arr, i, high);
+        }
+    }
+
+    static uint32_t findId(const Vector<NodeLocator>& arr, const Node* target) {
+        ptrdiff_t left = 0, right = static_cast<ptrdiff_t>(arr.size()) - 1;
+        while (left <= right) {
+            ptrdiff_t mid = left + (right - left) / 2;
+            if (arr[mid].ptr == target) return arr[mid].id;
+            if (arr[mid].ptr < target) left = mid + 1;
+            else right = mid - 1;
+        }
+        return static_cast<uint32_t>(-1); 
     }
 
 public:
@@ -530,81 +582,160 @@ public:
         return true;
     }
 
-    bool save(const String &path) const {
+    bool save(const String& path) const {
         std::ofstream out(path.c_str(), std::ios::binary);
+        if (!out)
+            return false;
 
-        out.write(reinterpret_cast<const char*>(&size), sizeof(size));
-        if (size == 0) 
+        if (!root) {
+            uint32_t zero = 0;
+            out.write(reinterpret_cast<const char*>(&zero), sizeof(zero));
             return true;
-
-        Stack<Node*> nodesToSave;
-        nodesToSave.push(root);
-        while (!nodesToSave.empty()) {
-            Node* current = nodesToSave.top();
-            nodesToSave.pop();
-            saveNode(out, current);
-
-            if (current->right->diffBit > current->diffBit)
-                nodesToSave.push(current->right);
-            if (current->left->diffBit > current->diffBit)
-                nodesToSave.push(current->left);
         }
+
+        Vector<Node*> nodes;
+        Stack<Node*> st;
+        st.push(root);
+
+        while (!st.empty()) {
+            Node* cur = st.top();
+            st.pop();
+
+            nodes.push_back(cur);
+
+            if (cur->left && cur->left->diffBit > cur->diffBit)
+                st.push(cur->left);
+            if (cur->right && cur->right->diffBit > cur->diffBit)
+                st.push(cur->right);
+        }
+
+        Vector<NodeLocator> locators;
+        locators.reserve(nodes.size());
+        for (uint32_t i = 0; i < nodes.size(); ++i)
+            locators.push_back({nodes[i], i});
+
+        sortLocators(locators, 0, static_cast<ptrdiff_t>(locators.size()) - 1);
+
+        uint32_t nodeCount = static_cast<uint32_t>(nodes.size());
+        out.write(reinterpret_cast<const char*>(&nodeCount), sizeof(nodeCount));
+
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            Node* n = nodes[i];
+            int32_t db = static_cast<int32_t>(n->diffBit);
+            uint32_t kLen = static_cast<uint32_t>(n->value.first.size());
+
+            out.write(reinterpret_cast<const char*>(&db), sizeof(db));
+            out.write(reinterpret_cast<const char*>(&kLen), sizeof(kLen));
+            out.write(n->value.first.data(), kLen);
+            out.write(reinterpret_cast<const char*>(&n->value.second), sizeof(T));
+
+            uint32_t leftID = findId(locators, n->left);
+            uint32_t rightID = findId(locators, n->right);
+
+            if (leftID == uint32_t(-1) || rightID == uint32_t(-1))
+                return false;
+
+            out.write(reinterpret_cast<const char*>(&leftID), sizeof(leftID));
+            out.write(reinterpret_cast<const char*>(&rightID), sizeof(rightID));
+        }
+
+        uint32_t dictSize = static_cast<uint32_t>(size);
+        out.write(reinterpret_cast<const char*>(&dictSize), sizeof(dictSize));
+
+        uint32_t rootID = findId(locators, root);
+        out.write(reinterpret_cast<const char*>(&rootID), sizeof(rootID));
+
         return true;
     }
-
-    bool load(const String &path) {
+    bool load(const String& path) {
         std::ifstream in(path.c_str(), std::ios::binary);
-        if (!in) {
-            PatriciaTree emptyTree(digitizer, normalizer);
-            *this = std::move(emptyTree);
-            return true;
-        }
-
-        const auto firstByte = in.peek();
-        if (firstByte == std::ifstream::traits_type::eof()) {
-            if (!in.eof())
-                throw std::runtime_error("Failed to read file");
-            PatriciaTree emptyTree(digitizer, normalizer);
-            *this = std::move(emptyTree);
-            return true;
-        }
-
-        size_t loadedSize = 0;
-        in.read(reinterpret_cast<char*>(&loadedSize), sizeof(loadedSize));
         if (!in)
-            throw std::runtime_error("Invalid file format");
+            return false;
 
-        PatriciaTree loadedTree(digitizer, normalizer);
-        for (size_t i = 0; i < loadedSize; ++i) {
-            size_t keyLen = 0;
-            in.read(reinterpret_cast<char*>(&keyLen), sizeof(keyLen));
-            if (!in)
-                throw std::runtime_error("Invalid file format");
-            if (keyLen > maxKeyLength)
-                throw std::runtime_error("Invalid file format");
+        clear();
 
-            Key key;
-            key.resize(keyLen);
-            if (keyLen > 0) {
-                in.read(key.data(), static_cast<std::streamsize>(keyLen));
-                if (!in)
-                    throw std::runtime_error("Invalid file format");
+        uint32_t nodeCount;
+        if (!in.read(reinterpret_cast<char*>(&nodeCount), sizeof(nodeCount)))
+            return false;
+
+        if (nodeCount == 0)
+            return true;
+
+        struct NodeInfo {
+            uint32_t left, right;
+        };
+
+        Vector<Node*> nodes;
+        Vector<NodeInfo> infos;
+        nodes.reserve(nodeCount);
+        infos.reserve(nodeCount);
+
+        for (uint32_t i = 0; i < nodeCount; ++i) {
+            int32_t db;
+            uint32_t kLen;
+
+            if (!in.read(reinterpret_cast<char*>(&db), sizeof(db)) ||
+                !in.read(reinterpret_cast<char*>(&kLen), sizeof(kLen))) {
+                clear();
+                return false;
             }
 
-            T value{};
-            in.read(reinterpret_cast<char*>(&value), sizeof(T));
-            if (!in)
-                throw std::runtime_error("Invalid file format");
+            String key;
+            key.resize(kLen);
+            if (!in.read(key.data(), kLen)) {
+                clear();
+                return false;
+            }
 
-            if (!loadedTree.insert(key, value))
-                throw std::runtime_error("Invalid file format");
+            T value;
+            if (!in.read(reinterpret_cast<char*>(&value), sizeof(value))) {
+                clear();
+                return false;
+            }
+
+            uint32_t l, r;
+            if (!in.read(reinterpret_cast<char*>(&l), sizeof(l)) ||
+                !in.read(reinterpret_cast<char*>(&r), sizeof(r))) {
+                clear();
+                return false;
+            }
+
+            Node* n = new Node{{key, value}, nullptr, nullptr, db};
+            nodes.push_back(n);
+            infos.push_back({l, r});
         }
 
-        char extraByte = 0;
-        if (in.read(&extraByte, 1))
-            throw std::runtime_error("Invalid file format");
+        for (uint32_t i = 0; i < nodeCount; ++i) {
+            nodes[i]->left = nodes[infos[i].left];
+            nodes[i]->right = nodes[infos[i].right];
+        }
 
-        *this = std::move(loadedTree);
+        uint32_t dictSize;
+        if (!in.read(reinterpret_cast<char*>(&dictSize), sizeof(dictSize))) {
+            clear();
+            return false;
+        }
+
+        if (dictSize > nodeCount) {
+            clear();
+            return false;
+        
+        }
+
+        uint32_t rootID;
+        if (!in.read(reinterpret_cast<char*>(&rootID), sizeof(rootID))) {
+            clear();
+            return false;
+        }
+
+        if (rootID >= nodeCount) {
+            clear();
+            return false;
+        }
+
+        root = nodes[rootID];
+        size = dictSize;
+
         return true;
     }
 };
