@@ -323,25 +323,9 @@ private:
         ptrdiff_t diffBit{-1};
     };
 
-    struct PatchRecord {
-        const Node *target;
-        std::streampos pos;
-    };
-
     struct NodeLocator {
         const Node *ptr;
         uint32_t id;
-    };
-
-    struct DfsItem {
-        const Node *node;
-        uint32_t id;
-    };
-
-    struct LoadedNode {
-        Node *node;
-        uint32_t left_id;
-        uint32_t right_id;
     };
 
     Node *root{nullptr};
@@ -370,13 +354,6 @@ private:
 
         root = nullptr;
         size = 0;
-    }
-
-    static void saveNode(std::ostream &out, const Node *node) {
-        uint64_t keyLen = node->value.first.size();
-        out.write(reinterpret_cast<const char*>(&keyLen), sizeof(keyLen));
-        out.write(node->value.first.data(), keyLen);
-        out.write(reinterpret_cast<const char*>(&node->value.second), sizeof(T));
     }
 
     static void sortLocators(Vector<NodeLocator>& arr, ptrdiff_t low, ptrdiff_t high) {
