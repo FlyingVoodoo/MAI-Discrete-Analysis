@@ -3,13 +3,12 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
+#include <exception>
 #include <fstream>
 #include <iostream>
 #include <locale>
-#include <new>
-#include <stdexcept>
 #include <utility>
+#include <functional>
 
 template <class T>
 class Vector {
@@ -360,9 +359,13 @@ private:
         if (low < high) {
             ptrdiff_t i = low, j = high;
             const Node* pivot = arr[(low + high) / 2].ptr;
+
+            std::less<const Node*> less;
+            std::greater<const Node*> greater;
+
             while (i <= j) {
-                while (arr[i].ptr < pivot) i++;
-                while (arr[j].ptr > pivot) j--;
+                while (less(arr[i].ptr, pivot)) i++;
+                while (greater(arr[j].ptr, pivot)) j--;
                 if (i <= j) {
                     NodeLocator temp = arr[i];
                     arr[i] = arr[j];
@@ -377,11 +380,12 @@ private:
     }
 
     static uint32_t findId(const Vector<NodeLocator>& arr, const Node* target) {
+        std::less<const Node*> less;
         ptrdiff_t left = 0, right = static_cast<ptrdiff_t>(arr.size()) - 1;
         while (left <= right) {
             ptrdiff_t mid = left + (right - left) / 2;
             if (arr[mid].ptr == target) return arr[mid].id;
-            if (arr[mid].ptr < target) left = mid + 1;
+            if (less(arr[mid].ptr, target)) left = mid + 1;
             else right = mid - 1;
         }
         return static_cast<uint32_t>(-1); 
@@ -395,8 +399,54 @@ public:
         clear();
     }
 
-    PatriciaTree(const PatriciaTree &other) = delete;
-    PatriciaTree& operator=(const PatriciaTree &other) = delete;
+    PatriciaTree(const PatriciaTree& other) : digitizer{other.digitizer}, normalizer{other.normalizer} {
+        if (!other.root) return;
+
+        Vector<Node*> oldNodes;
+        {
+            Stack<Node*> st;
+            st.push(other.root);
+            while (!st.empty()) {
+                Node* cur = st.top(); st.pop();
+                oldNodes.push_back(cur);
+                if (cur->left  && cur->left->diffBit  > cur->diffBit) st.push(cur->left);
+                if (cur->right && cur->right->diffBit > cur->diffBit) st.push(cur->right);
+            }
+        }
+
+        const uint32_t n = static_cast<uint32_t>(oldNodes.size());
+
+        Vector<NodeLocator> locators;
+        locators.reserve(n);
+        for (uint32_t i = 0; i < n; ++i)
+            locators.push_back({oldNodes[i], i});
+        sortLocators(locators, 0, static_cast<ptrdiff_t>(n) - 1);
+
+        Vector<Node*> newNodes;
+        newNodes.reserve(n);
+        for (uint32_t i = 0; i < n; ++i) {
+            newNodes.push_back(new Node{oldNodes[i]->value, nullptr, nullptr, oldNodes[i]->diffBit});
+        }
+
+        for (uint32_t i = 0; i < n; ++i) {
+            uint32_t leftId  = findId(locators, oldNodes[i]->left);
+            uint32_t rightId = findId(locators, oldNodes[i]->right);
+            newNodes[i]->left  = newNodes[leftId];
+            newNodes[i]->right = newNodes[rightId];
+        }
+
+        uint32_t rootId = findId(locators, other.root);
+        root = newNodes[rootId];
+        size = other.size;
+    }
+
+    PatriciaTree& operator=(const PatriciaTree& other) {
+        if (this != &other) {
+            PatriciaTree copy(other);
+            *this = std::move(copy);
+        }
+        return *this;
+    }
 
     PatriciaTree(PatriciaTree &&other) noexcept
                 : root{std::exchange(other.root, nullptr)},
