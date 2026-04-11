@@ -320,11 +320,7 @@ private:
         std::pair <Key, T> value{};
         Node *left{}, *right{};
         ptrdiff_t diffBit{-1};
-    };
-
-    struct NodeLocator {
-        const Node *ptr;
-        uint32_t id;
+        size_t saveId{static_cast<size_t>(-1)};
     };
 
     Node *root{nullptr};
@@ -336,59 +332,35 @@ private:
         if (!root) return;
 
         Stack<Node*> st;
+        Vector<Node*> toDelete;
+        toDelete.reserve(size == 0 ? 1 : size);
+
+        root->saveId = 0;
         st.push(root);
 
         while (!st.empty()) {
             Node* cur = st.top();
             st.pop();
 
-            if (cur->left && cur->left->diffBit > cur->diffBit)
+            toDelete.push_back(cur);
+
+            if (cur->left && cur->left->diffBit > cur->diffBit && cur->left->saveId == static_cast<size_t>(-1)) {
+                cur->left->saveId = 0;
                 st.push(cur->left);
+            }
 
-            if (cur->right && cur->right->diffBit > cur->diffBit)
+            if (cur->right && cur->right->diffBit > cur->diffBit && cur->right->saveId == static_cast<size_t>(-1)) {
+                cur->right->saveId = 0;
                 st.push(cur->right);
+            }
 
-            delete cur;
         }
+
+        for (size_t i = 0; i < toDelete.size(); ++i)
+            delete toDelete[i];
 
         root = nullptr;
         size = 0;
-    }
-
-    static void sortLocators(Vector<NodeLocator>& arr, ptrdiff_t low, ptrdiff_t high) {
-        if (low < high) {
-            ptrdiff_t i = low, j = high;
-            const Node* pivot = arr[(low + high) / 2].ptr;
-
-            std::less<const Node*> less;
-            std::greater<const Node*> greater;
-
-            while (i <= j) {
-                while (less(arr[i].ptr, pivot)) i++;
-                while (greater(arr[j].ptr, pivot)) j--;
-                if (i <= j) {
-                    NodeLocator temp = arr[i];
-                    arr[i] = arr[j];
-                    arr[j] = temp;
-                    i++;
-                    j--;
-                }
-            }
-            if (low < j) sortLocators(arr, low, j);
-            if (i < high) sortLocators(arr, i, high);
-        }
-    }
-
-    static uint32_t findId(const Vector<NodeLocator>& arr, const Node* target) {
-        std::less<const Node*> less;
-        ptrdiff_t left = 0, right = static_cast<ptrdiff_t>(arr.size()) - 1;
-        while (left <= right) {
-            ptrdiff_t mid = left + (right - left) / 2;
-            if (arr[mid].ptr == target) return arr[mid].id;
-            if (less(arr[mid].ptr, target)) left = mid + 1;
-            else right = mid - 1;
-        }
-        return static_cast<uint32_t>(-1); 
     }
 
 public:
@@ -403,41 +375,46 @@ public:
         if (!other.root) return;
 
         Vector<Node*> oldNodes;
-        {
-            Stack<Node*> st;
-            st.push(other.root);
-            while (!st.empty()) {
-                Node* cur = st.top(); st.pop();
-                oldNodes.push_back(cur);
-                if (cur->left  && cur->left->diffBit  > cur->diffBit) st.push(cur->left);
-                if (cur->right && cur->right->diffBit > cur->diffBit) st.push(cur->right);
-            }
-        }
-
-        const uint32_t n = static_cast<uint32_t>(oldNodes.size());
-
-        Vector<NodeLocator> locators;
-        locators.reserve(n);
-        for (uint32_t i = 0; i < n; ++i)
-            locators.push_back({oldNodes[i], i});
-        sortLocators(locators, 0, static_cast<ptrdiff_t>(n) - 1);
-
         Vector<Node*> newNodes;
-        newNodes.reserve(n);
-        for (uint32_t i = 0; i < n; ++i) {
-            newNodes.push_back(new Node{oldNodes[i]->value, nullptr, nullptr, oldNodes[i]->diffBit});
+
+        Stack<Node*> st;
+        st.push(const_cast<Node*>(other.root));
+
+        try {
+            while (!st.empty()) {
+                Node* cur = st.top();
+                st.pop();
+
+                if (cur->saveId != static_cast<size_t>(-1))
+                    continue;
+
+                cur->saveId = oldNodes.size();
+                oldNodes.push_back(cur);
+                newNodes.push_back(new Node{cur->value, nullptr, nullptr, cur->diffBit});
+
+                if (cur->left && cur->left->diffBit > cur->diffBit)
+                    st.push(cur->left);
+                if (cur->right && cur->right->diffBit > cur->diffBit)
+                    st.push(cur->right);
+            }
+
+            for (size_t i = 0; i < oldNodes.size(); ++i) {
+                newNodes[i]->left = newNodes[oldNodes[i]->left->saveId];
+                newNodes[i]->right = newNodes[oldNodes[i]->right->saveId];
+            }
+
+            root = newNodes[const_cast<Node*>(other.root)->saveId];
+            size = other.size;
+        } catch (...) {
+            for (size_t i = 0; i < newNodes.size(); ++i)
+                delete newNodes[i];
+            for (size_t i = 0; i < oldNodes.size(); ++i)
+                oldNodes[i]->saveId = static_cast<size_t>(-1);
+            throw;
         }
 
-        for (uint32_t i = 0; i < n; ++i) {
-            uint32_t leftId  = findId(locators, oldNodes[i]->left);
-            uint32_t rightId = findId(locators, oldNodes[i]->right);
-            newNodes[i]->left  = newNodes[leftId];
-            newNodes[i]->right = newNodes[rightId];
-        }
-
-        uint32_t rootId = findId(locators, other.root);
-        root = newNodes[rootId];
-        size = other.size;
+        for (size_t i = 0; i < oldNodes.size(); ++i)
+            oldNodes[i]->saveId = static_cast<size_t>(-1);
     }
 
     PatriciaTree& operator=(const PatriciaTree& other) {
@@ -614,155 +591,157 @@ public:
         if (!out)
             return false;
 
-        if (!root) {
-            uint32_t zero = 0;
-            out.write(reinterpret_cast<const char*>(&zero), sizeof(zero));
+        out.write(reinterpret_cast<const char*>(&size), sizeof(size));
+        if (size == 0 || root == nullptr)
             return true;
-        }
 
-        Vector<Node*> nodes;
-        Stack<Node*> st;
-        st.push(root);
+        Vector<Node*> queue;
+        queue.reserve(size);
 
-        while (!st.empty()) {
-            Node* cur = st.top();
-            st.pop();
+        root->saveId = 0;
+        queue.push_back(root);
 
-            nodes.push_back(cur);
+        size_t head = 0;
+        while (head < queue.size()) {
+            Node* cur = queue[head++];
 
-            if (cur->left && cur->left->diffBit > cur->diffBit)
-                st.push(cur->left);
-            if (cur->right && cur->right->diffBit > cur->diffBit)
-                st.push(cur->right);
-        }
+            out.write(reinterpret_cast<const char*>(&cur->diffBit), sizeof(cur->diffBit));
 
-        Vector<NodeLocator> locators;
-        locators.reserve(nodes.size());
-        for (uint32_t i = 0; i < nodes.size(); ++i)
-            locators.push_back({nodes[i], i});
-
-        sortLocators(locators, 0, static_cast<ptrdiff_t>(locators.size()) - 1);
-
-        uint32_t nodeCount = static_cast<uint32_t>(nodes.size());
-        out.write(reinterpret_cast<const char*>(&nodeCount), sizeof(nodeCount));
-
-        for (size_t i = 0; i < nodes.size(); ++i) {
-            Node* n = nodes[i];
-            int32_t db = static_cast<int32_t>(n->diffBit);
-            uint32_t kLen = static_cast<uint32_t>(n->value.first.size());
-
-            out.write(reinterpret_cast<const char*>(&db), sizeof(db));
+            size_t kLen = cur->value.first.size();
             out.write(reinterpret_cast<const char*>(&kLen), sizeof(kLen));
-            out.write(n->value.first.data(), kLen);
-            out.write(reinterpret_cast<const char*>(&n->value.second), sizeof(T));
+            out.write(cur->value.first.data(), static_cast<std::streamsize>(kLen));
+            out.write(reinterpret_cast<const char*>(&cur->value.second), sizeof(T));
 
-            uint32_t leftID = findId(locators, n->left);
-            uint32_t rightID = findId(locators, n->right);
+            size_t leftId = static_cast<size_t>(-1);
+            if (cur->left != nullptr) {
+                if (cur->left->saveId != static_cast<size_t>(-1)) {
+                    leftId = cur->left->saveId;
+                } else {
+                    leftId = queue.size();
+                    cur->left->saveId = leftId;
+                    queue.push_back(cur->left);
+                }
+            }
+            out.write(reinterpret_cast<const char*>(&leftId), sizeof(leftId));
 
-            if (leftID == uint32_t(-1) || rightID == uint32_t(-1))
-                return false;
-
-            out.write(reinterpret_cast<const char*>(&leftID), sizeof(leftID));
-            out.write(reinterpret_cast<const char*>(&rightID), sizeof(rightID));
+            size_t rightId = static_cast<size_t>(-1);
+            if (cur->right != nullptr) {
+                if (cur->right->saveId != static_cast<size_t>(-1)) {
+                    rightId = cur->right->saveId;
+                } else {
+                    rightId = queue.size();
+                    cur->right->saveId = rightId;
+                    queue.push_back(cur->right);
+                }
+            }
+            out.write(reinterpret_cast<const char*>(&rightId), sizeof(rightId));
         }
 
-        uint32_t dictSize = static_cast<uint32_t>(size);
-        out.write(reinterpret_cast<const char*>(&dictSize), sizeof(dictSize));
+        const bool ok = out.good();
+        for (size_t i = 0; i < queue.size(); ++i)
+            queue[i]->saveId = static_cast<size_t>(-1);
 
-        uint32_t rootID = findId(locators, root);
-        out.write(reinterpret_cast<const char*>(&rootID), sizeof(rootID));
-
-        return true;
+        return ok;
     }
+
     bool load(const String& path) {
         std::ifstream in(path.c_str(), std::ios::binary);
         if (!in)
             return false;
 
-        clear();
-
-        uint32_t nodeCount;
-        if (!in.read(reinterpret_cast<char*>(&nodeCount), sizeof(nodeCount)))
+        size_t newSize = 0;
+        if (!in.read(reinterpret_cast<char*>(&newSize), sizeof(newSize)))
             return false;
 
-        if (nodeCount == 0)
-            return true;
+        PatriciaTree tmp(digitizer, normalizer);
+        tmp.size = newSize;
 
-        struct NodeInfo {
-            uint32_t left, right;
+        if (newSize == 0) {
+            *this = std::move(tmp);
+            return true;
+        }
+
+        struct LoadPatch {
+            Node** place;
+            size_t id;
         };
 
         Vector<Node*> nodes;
-        Vector<NodeInfo> infos;
-        nodes.reserve(nodeCount);
-        infos.reserve(nodeCount);
+        nodes.reserve(newSize);
+        for (size_t i = 0; i < newSize; ++i)
+            nodes.push_back(new Node());
 
-        for (uint32_t i = 0; i < nodeCount; ++i) {
-            int32_t db;
-            uint32_t kLen;
+        Vector<LoadPatch> patches;
+        patches.reserve(newSize * 2);
 
-            if (!in.read(reinterpret_cast<char*>(&db), sizeof(db)) ||
-                !in.read(reinterpret_cast<char*>(&kLen), sizeof(kLen))) {
-                clear();
-                return false;
+        bool error = false;
+        for (size_t i = 0; i < newSize; ++i) {
+            Node* cur = nodes[i];
+            ptrdiff_t diffBit;
+
+            if (!in.read(reinterpret_cast<char*>(&diffBit), sizeof(diffBit))) {
+                error = true;
+                break;
+            }
+
+            size_t kLen;
+            if (!in.read(reinterpret_cast<char*>(&kLen), sizeof(kLen))) {
+                error = true;
+                break;
             }
 
             String key;
             key.resize(kLen);
-            if (!in.read(key.data(), kLen)) {
-                clear();
-                return false;
+            if (!in.read(key.data(), static_cast<std::streamsize>(kLen))) {
+                error = true;
+                break;
             }
 
             T value;
-            if (!in.read(reinterpret_cast<char*>(&value), sizeof(value))) {
-                clear();
-                return false;
+            if (!in.read(reinterpret_cast<char*>(&value), sizeof(T))) {
+                error = true;
+                break;
             }
 
-            uint32_t l, r;
-            if (!in.read(reinterpret_cast<char*>(&l), sizeof(l)) ||
-                !in.read(reinterpret_cast<char*>(&r), sizeof(r))) {
-                clear();
-                return false;
+            size_t leftId;
+            size_t rightId;
+            if (!in.read(reinterpret_cast<char*>(&leftId), sizeof(leftId)) ||
+                !in.read(reinterpret_cast<char*>(&rightId), sizeof(rightId))) {
+                error = true;
+                break;
             }
 
-            Node* n = new Node{{key, value}, nullptr, nullptr, db};
-            nodes.push_back(n);
-            infos.push_back({l, r});
+            if (leftId != static_cast<size_t>(-1)) {
+                if (leftId >= newSize) {
+                    error = true;
+                    break;
+                }
+                patches.push_back({&cur->left, leftId});
+            }
+
+            if (rightId != static_cast<size_t>(-1)) {
+                if (rightId >= newSize) {
+                    error = true;
+                    break;
+                }
+                patches.push_back({&cur->right, rightId});
+            }
+
+            cur->diffBit = diffBit;
+            cur->value = {key, value};
         }
 
-        for (uint32_t i = 0; i < nodeCount; ++i) {
-            nodes[i]->left = nodes[infos[i].left];
-            nodes[i]->right = nodes[infos[i].right];
-        }
-
-        uint32_t dictSize;
-        if (!in.read(reinterpret_cast<char*>(&dictSize), sizeof(dictSize))) {
-            clear();
+        if (error) {
+            for (size_t i = 0; i < nodes.size(); ++i)
+                delete nodes[i];
             return false;
         }
 
-        if (dictSize > nodeCount) {
-            clear();
-            return false;
-        
-        }
+        for (size_t i = 0; i < patches.size(); ++i)
+            *patches[i].place = nodes[patches[i].id];
 
-        uint32_t rootID;
-        if (!in.read(reinterpret_cast<char*>(&rootID), sizeof(rootID))) {
-            clear();
-            return false;
-        }
-
-        if (rootID >= nodeCount) {
-            clear();
-            return false;
-        }
-
-        root = nodes[rootID];
-        size = dictSize;
-
+        tmp.root = nodes[0];
+        *this = std::move(tmp);
         return true;
     }
 };
@@ -778,6 +757,8 @@ public:
         const String &str,
         const ptrdiff_t bit
     ) const noexcept {
+        if (bit < 0)
+            return false;
         const ptrdiff_t charIndex = bit / charBits;
         if (charIndex >= static_cast<ptrdiff_t>(str.size()))
             return false;
