@@ -606,7 +606,6 @@ public:
             Node* cur = queue[head++];
 
             out.write(reinterpret_cast<const char*>(&cur->diffBit), sizeof(cur->diffBit));
-
             size_t kLen = cur->value.first.size();
             out.write(reinterpret_cast<const char*>(&kLen), sizeof(kLen));
             out.write(cur->value.first.data(), static_cast<std::streamsize>(kLen));
@@ -614,39 +613,35 @@ public:
 
             size_t leftId = static_cast<size_t>(-1);
             if (cur->left != nullptr) {
-                if (cur->left->saveId != static_cast<size_t>(-1)) {
+                if (cur->left->diffBit > cur->diffBit) {
+                    cur->left->saveId = queue.size();
+                    queue.push_back(cur->left);
                     leftId = cur->left->saveId;
                 } else {
-                    leftId = queue.size();
-                    cur->left->saveId = leftId;
-                    queue.push_back(cur->left);
+                    leftId = cur->left->saveId;
                 }
             }
             out.write(reinterpret_cast<const char*>(&leftId), sizeof(leftId));
 
             size_t rightId = static_cast<size_t>(-1);
             if (cur->right != nullptr) {
-                if (cur->right->saveId != static_cast<size_t>(-1)) {
+                if (cur->right->diffBit > cur->diffBit) {
+                    cur->right->saveId = queue.size();
+                    queue.push_back(cur->right);
                     rightId = cur->right->saveId;
                 } else {
-                    rightId = queue.size();
-                    cur->right->saveId = rightId;
-                    queue.push_back(cur->right);
+                    rightId = cur->right->saveId;
                 }
             }
             out.write(reinterpret_cast<const char*>(&rightId), sizeof(rightId));
         }
 
-        const bool ok = out.good();
-        for (size_t i = 0; i < queue.size(); ++i)
-            queue[i]->saveId = static_cast<size_t>(-1);
-
-        return ok;
+        return out.good();
     }
 
     bool load(const String& path) {
         std::ifstream in(path.c_str(), std::ios::binary);
-        if (!in)
+        if (!in) 
             return false;
 
         size_t newSize = 0;
@@ -654,93 +649,65 @@ public:
             return false;
 
         PatriciaTree tmp(digitizer, normalizer);
-        tmp.size = newSize;
-
         if (newSize == 0) {
             *this = std::move(tmp);
             return true;
         }
 
-        struct LoadPatch {
-            Node** place;
-            size_t id;
-        };
-
         Vector<Node*> nodes;
-        nodes.reserve(newSize);
-        for (size_t i = 0; i < newSize; ++i)
-            nodes.push_back(new Node());
-
-        Vector<LoadPatch> patches;
-        patches.reserve(newSize * 2);
+        try {
+            nodes.reserve(newSize);
+            for (size_t i = 0; i < newSize; ++i) {
+                nodes.push_back(new Node());
+            }
+        } catch (...) {
+            for (size_t i = 0; i < nodes.size(); ++i) delete nodes[i];
+            return false;
+        }
 
         bool error = false;
         for (size_t i = 0; i < newSize; ++i) {
             Node* cur = nodes[i];
             ptrdiff_t diffBit;
-
-            if (!in.read(reinterpret_cast<char*>(&diffBit), sizeof(diffBit))) {
-                error = true;
-                break;
-            }
-
-            size_t kLen;
-            if (!in.read(reinterpret_cast<char*>(&kLen), sizeof(kLen))) {
-                error = true;
-                break;
-            }
-
-            String key;
-            key.resize(kLen);
-            if (!in.read(key.data(), static_cast<std::streamsize>(kLen))) {
-                error = true;
-                break;
-            }
-
+            size_t kLen, leftId, rightId;
             T value;
-            if (!in.read(reinterpret_cast<char*>(&value), sizeof(T))) {
-                error = true;
-                break;
+
+            if (!in.read(reinterpret_cast<char*>(&diffBit), sizeof(diffBit)) ||
+                !in.read(reinterpret_cast<char*>(&kLen), sizeof(kLen))) {
+                error = true; break;
             }
 
-            size_t leftId;
-            size_t rightId;
+            String key; key.resize(kLen);
+            if (!in.read(key.data(), static_cast<std::streamsize>(kLen)) ||
+                !in.read(reinterpret_cast<char*>(&value), sizeof(T))) {
+                error = true; break;
+            }
+
             if (!in.read(reinterpret_cast<char*>(&leftId), sizeof(leftId)) ||
                 !in.read(reinterpret_cast<char*>(&rightId), sizeof(rightId))) {
-                error = true;
-                break;
-            }
-
-            if (leftId != static_cast<size_t>(-1)) {
-                if (leftId >= newSize) {
-                    error = true;
-                    break;
-                }
-                patches.push_back({&cur->left, leftId});
-            }
-
-            if (rightId != static_cast<size_t>(-1)) {
-                if (rightId >= newSize) {
-                    error = true;
-                    break;
-                }
-                patches.push_back({&cur->right, rightId});
+                error = true; break;
             }
 
             cur->diffBit = diffBit;
             cur->value = {key, value};
+
+            if (leftId != static_cast<size_t>(-1)) {
+                if (leftId >= newSize) { error = true; break; }
+                cur->left = nodes[leftId];
+            }
+            if (rightId != static_cast<size_t>(-1)) {
+                if (rightId >= newSize) { error = true; break; }
+                cur->right = nodes[rightId];
+            }
         }
 
         if (error) {
-            for (size_t i = 0; i < nodes.size(); ++i)
-                delete nodes[i];
+            for (size_t i = 0; i < nodes.size(); ++i) delete nodes[i];
             return false;
         }
 
-        for (size_t i = 0; i < patches.size(); ++i)
-            *patches[i].place = nodes[patches[i].id];
-
         tmp.root = nodes[0];
+        tmp.size = newSize;
         *this = std::move(tmp);
         return true;
     }
