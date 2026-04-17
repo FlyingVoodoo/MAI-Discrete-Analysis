@@ -3,14 +3,24 @@
 #include <unordered_map>
 #include <string>
 #include <vector>
-#include <sstream>
 #include <iterator>
 #include <algorithm>
 #include <utility>
 #include <cctype>
-#include <limits>
+#include <ranges>
+#include <concepts>
 
-template <typename T = uint32_t>
+template <typename T>
+concept Numeric = std::integral<T> || std::floating_point<T>;
+
+template <typename Pred, typename T>
+concept Comparator = requires(const Pred& p, const T& a, const T& b) {
+    { p(a, b) } -> std::convertible_to<bool>;
+};
+
+struct NumberIteratorEnd {};
+
+template <Numeric T = uint32_t>
 class NumberIterator {
 private:
     const char* ptr_;
@@ -36,7 +46,7 @@ private:
     }
 
 public:
-    using iterator_category = std::input_iterator_tag;
+    using iterator_concept = std::input_iterator_tag;
     using value_type = T;
     using difference_type = std::ptrdiff_t;
     using pointer = const T*;
@@ -67,20 +77,24 @@ public:
         return tmp;
     }
 
-    bool operator==(const NumberIterator& other) const {
-        return isEnd_ == other.isEnd_;
+    bool operator==(const NumberIteratorEnd&) const {
+        return isEnd_;
     }
 
-    bool operator!=(const NumberIterator& other) const {
-        return !(*this == other);
+    bool operator!=(const NumberIteratorEnd&) const {
+        return !isEnd_;
     }
 };
 
-template <typename T = uint32_t>
+template <Numeric T = uint32_t>
 std::vector<T> parseNumbers(const std::string& line) {
     std::vector<T> result;
-    for (NumberIterator<T> it(line.c_str()); it != NumberIterator<T>(); ++it) {
+    NumberIterator<T> it(line.c_str());
+    NumberIteratorEnd end;
+    
+    while (it != end) {
         result.push_back(*it);
+        ++it;
     }
     return result;
 }
@@ -92,23 +106,23 @@ private:
     size_t size_;
 
 public:
-    View() : data_(nullptr), size_(0) {}
-    View(const T* data, size_t size) : data_(data), size_(size) {}
+    constexpr View() : data_(nullptr), size_(0) {}
+    constexpr View(const T* data, size_t size) : data_(data), size_(size) {}
     View(const std::vector<T>& vec) : data_(vec.data()), size_(vec.size()) {}
     View(const T* first, const T* last)
         : data_(first), size_(static_cast<size_t>(last - first)) {}
 
-    const T* data() const { return data_; }
-    size_t size() const { return size_; }
-    bool empty() const { return size_ == 0; }
+    constexpr const T* data() const { return data_; }
+    constexpr size_t size() const { return size_; }
+    constexpr bool empty() const { return size_ == 0; }
 
-    const T& operator[](size_t index) const { return data_[index]; }
+    constexpr const T& operator[](size_t index) const { return data_[index]; }
 
-    const T* begin() const { return data_; }
-    const T* end() const { return data_ + size_; }
+    constexpr const T* begin() const { return data_; }
+    constexpr const T* end() const { return data_ + size_; }
 };
 
-template <typename T = uint32_t, typename Pred = std::equal_to<T>>
+template <Numeric T = uint32_t, Comparator<T> Pred = std::equal_to<T>>
 class BoyerMooreSearcher {
     using Diff = std::ptrdiff_t;
 
@@ -134,10 +148,21 @@ public:
         }
     }
 
-    template <std::random_access_iterator Iter, typename Callback>
-    void operator()(Iter first, Iter last, Callback&& onMatch) const {
+    explicit BoyerMooreSearcher(std::vector<T>&& pattern, const Pred& pred = Pred())
+        : pattern_(std::move(pattern)), pred_(pred) {
+        if (!pattern_.empty()) {
+            preprocessBadChar();
+            preprocessGoodSuffix();
+        }
+    }
+
+    template <std::ranges::random_access_range Range, typename Callback>
+    void operator()(Range&& range, Callback&& onMatch) const {
+        auto first = std::ranges::begin(range);
+        auto last = std::ranges::end(range);
         Diff n = std::distance(first, last);
-        Diff m = pattern_.size();
+        Diff m = static_cast<Diff>(pattern_.size());
+        
         if (m == 0 || n < m)
             return;
 
@@ -174,7 +199,7 @@ private:
     }
 
     void preprocessGoodSuffix() {
-        Diff m = pattern_.size();
+        Diff m = static_cast<Diff>(pattern_.size());
         good_suffix_.assign(m, m);
 
         std::vector<Diff> suff(m, 0);
@@ -213,49 +238,57 @@ private:
     }
 };
 
+
+struct TokenPos {
+    uint32_t line;
+    uint32_t word;
+};
+
 int main() {
     std::ios_base::sync_with_stdio(false);
-    std::cin.tie(NULL);
+    std::cin.tie(nullptr);
 
     std::string patternLine;
-    if (!std::getline(std::cin, patternLine)) return 0;
+    if (!std::getline(std::cin, patternLine)) {
+        return 0;
+    }
     
     auto pattern = parseNumbers<uint32_t>(patternLine);
-    if (pattern.empty()) return 0;
+    if (pattern.empty()) {
+        return 0;
+    }
 
     std::vector<uint32_t> textValues;
-    std::vector<uint32_t> lineNumbers;
-    std::vector<uint32_t> wordNumbers;
+    std::vector<TokenPos> tokenPositions;
 
     std::string line;
     uint32_t currentLineIdx = 1;
-    
-    textValues.reserve(1000000); 
 
     while (std::getline(std::cin, line)) {
         uint32_t currentWordIdx = 1;
         NumberIterator<uint32_t> it(line.c_str());
-        NumberIterator<uint32_t> end;
+        NumberIteratorEnd end;
         
         for (; it != end; ++it) {
             textValues.push_back(*it);
-            lineNumbers.push_back(currentLineIdx);
-            wordNumbers.push_back(currentWordIdx);
+            tokenPositions.push_back({currentLineIdx, currentWordIdx});
             currentWordIdx++;
         }
         currentLineIdx++;
     }
 
-    if (textValues.empty()) return 0;
+    if (textValues.empty()) {
+        return 0;
+    }
 
-    BoyerMooreSearcher<uint32_t> bm(pattern);
+    BoyerMooreSearcher<uint32_t> bm(std::move(pattern));
 
     auto onMatch = [&](std::vector<uint32_t>::iterator it) {
         size_t idx = std::distance(textValues.begin(), it);
-        std::cout << lineNumbers[idx] << ", " << wordNumbers[idx] << "\n";
-        return false; 
+        std::cout << tokenPositions[idx].line << ", " << tokenPositions[idx].word << "\n";
+        return false;
     };
 
-    bm(textValues.begin(), textValues.end(), onMatch);
+    bm(textValues, onMatch);
     return 0;
 }
