@@ -127,7 +127,7 @@ class BoyerMooreSearcher {
     using Diff = std::ptrdiff_t;
 
     std::vector<T> pattern_;
-    std::unordered_map<T, Diff> last_;
+    std::unordered_map<T, std::vector<Diff>> last_;
     std::vector<Diff> good_suffix_;
     Pred pred_;
 
@@ -180,11 +180,17 @@ public:
             } else {
                 Diff bc = 1;
                 auto it = last_.find(*(first + shift + j));
-                if (it != last_.end())
-                    bc = std::max<Diff>(1, j - it->second);
-                else
+                if (it != last_.end()) {
+                    const auto& occurrences = it->second;
+                    auto posIt = std::lower_bound(occurrences.begin(), occurrences.end(), j);
+                    if (posIt != occurrences.begin()) {
+                        bc = j - *(--posIt);
+                    } else {
+                        bc = j + 1;
+                    }
+                } else {
                     bc = j + 1;
-                
+                }
                 Diff gs = good_suffix_[j];
                 shift += std::max(bc, gs);
             }
@@ -193,8 +199,9 @@ public:
 
 private:
     void preprocessBadChar() {
+        last_.clear();
         for (Diff i = 0; i < static_cast<Diff>(pattern_.size()); ++i) {
-            last_[pattern_[i]] = i;
+            last_[pattern_[i]].push_back(i);
         }
     }
 
