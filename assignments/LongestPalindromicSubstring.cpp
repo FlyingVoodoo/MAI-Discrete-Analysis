@@ -1,11 +1,3 @@
-#include <string>
-#include <vector>
-#include <algorithm>
-#include <iterator>
-#include <utility>
-
-using namespace std;
-
 class Solution {
 private:
     struct VirtualString {
@@ -26,10 +18,10 @@ private:
             int index;
 
             constexpr char operator*() const {
-                if (index <= 0) return '^';
-                if (index >= vs->virtual_size - 1) return '$';
-                if (index % 2 == 0) return '#';
-                return vs->source[(index - 1) / 2];
+                if (index == 0) return '^';
+                if (index == vs->virtual_size - 1) return '$';
+                if (index % 2 != 0) return '#';
+                return vs->source[(index - 2) / 2];
             }
 
             constexpr Iterator& operator++() { ++index; return *this; }
@@ -41,59 +33,51 @@ private:
             constexpr auto operator<=>(const Iterator& other) const = default;
         };
 
-        Iterator begin() const { return {this, 0}; }
-        Iterator end() const { return {this, virtual_size}; }
+        constexpr Iterator begin() const { return {this, 0}; }
+        constexpr Iterator end() const { return {this, virtual_size}; }
     };
 
     template<class Iter, class Func>
-    static constexpr void findPalindromes(
-        Iter first,
-        Iter last,
-        Func &&callback
-    ) {
-        int n = static_cast<int>(std::distance(first, last));
-        if (n < 3)
-            return;
+    static constexpr void findPalindromes(Iter first, Iter last, Func &&callback) {
+        int n = static_cast<int>(last - first);
+        if (n < 3) return;
+
         std::vector<int> p(n, 0);
         int center = 0; 
         int right = 0;
 
         for (int i = 1; i < n - 1; ++i) {
             if (i < right) {
-                int mirror = 2 * center - i;
-                p[i] = std::min(right - i, p[mirror]);
+                p[i] = std::min(right - i, p[2 * center - i]);
             }
-
             while (*(first + i - p[i] - 1) == *(first + i + p[i] + 1)) {
                 ++p[i];
             }
-
             if (i + p[i] > right) {
                 center = i;
                 right = i + p[i];
             }
-
             callback(i, p[i]);
         }
     }
 
 public:
-    constexpr string longestPalindrome(string_view str) const {
-        if (str.length() <= 1) 
-            return string(str);
-
-        VirtualString vs(str);
+    string longestPalindrome(string s) {
+        if (s.empty()) return "";
+        string_view sv = s;
+        VirtualString vs(sv);
 
         int maxLen = 0;
-        int startInOrig = 0;
+        int bestCenter = 0;
 
-        findPalindromes(vs.begin(), vs.end(), [&](auto i, auto radius) {
+        findPalindromes(vs.begin(), vs.end(), [&](int i, int radius) {
             if (radius > maxLen) {
                 maxLen = radius;
-                startInOrig = (i - radius) / 2;
+                bestCenter = i;
             }
         });
 
-        return string(str.substr(startInOrig, maxLen));
+        int start = (bestCenter - maxLen) / 2;
+        return string(sv.substr(start, maxLen));
     }
 };
