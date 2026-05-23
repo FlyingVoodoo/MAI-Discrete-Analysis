@@ -1,11 +1,3 @@
-#include <iostream>
-#include <vector>
-#include <memory>
-#include <string>
-#include <string_view>
-#include <algorithm>
-#include <limits>
-
 class SuffixTree final {
     struct Node final {
         std::vector<std::pair<char, std::unique_ptr<Node>>> edges;
@@ -217,7 +209,7 @@ public:
         SuffixTree tree;
         tree.build(s + '$'); 
 
-        std::string_view max_pal = s.substr(0, 1);
+        std::string_view max_pal = std::string_view(s).substr(0, 1);
 
         auto check_center = [&](int left, int right) {
             while (left >= 0 && right < s.size() && s[left] == s[right]) {
