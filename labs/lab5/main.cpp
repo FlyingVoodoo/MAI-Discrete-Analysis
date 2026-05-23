@@ -23,25 +23,34 @@ class SuffixTree final {
         }
 
         std::unique_ptr<Node>* find_edge(char c) noexcept {
-            for (auto& [ch, child] : edges)
-                if (ch == c) return &child;
+            auto it = std::lower_bound(edges.begin(), edges.end(), c,
+                [](const std::pair<char, std::unique_ptr<Node>>& edge, char val) {
+                    return edge.first < val;
+                });
+
+            if (it != edges.end() && it->first == c) {
+                return &(it->second);
+            }
             return nullptr;
         }
 
         void add_edge(char c, std::unique_ptr<Node> child) {
-            edges.emplace_back(c, std::move(child));
+            auto it = std::lower_bound(edges.begin(), edges.end(), c,
+                [](const std::pair<char, std::unique_ptr<Node>>& edge, char val) {
+                    return edge.first < val;
+                });
+            edges.emplace(it, c, std::move(child));
         }
 
         Node* min_child(char terminator) const noexcept {
-            Node* best = nullptr;
-            char best_key = std::numeric_limits<char>::max();
-            for (const auto& [ch, child] : edges) {
-                if (ch != terminator && ch < best_key) {
-                    best_key = ch;
-                    best = child.get();
-                }
+            if (edges.empty()) return nullptr;
+            
+            auto it = edges.begin();
+            if (it->first == terminator) {
+                ++it;
             }
-            return best;
+            
+            return it != edges.end() ? it->second.get() : nullptr;
         }
     };
 
