@@ -3,12 +3,7 @@
 #include <string>
 #include <cstdint>
 #include <utility>
-
-enum class LexState : std::uint8_t {
-    Greater = 0,
-    Equal   = 1,
-    Less    = 2
-};
+#include <compare>
 
 class NumberCounter {
     using u64 = std::int64_t;
@@ -16,7 +11,7 @@ class NumberCounter {
 
     struct Transition {
         usize next_len;
-        LexState next_lex;
+        std::strong_ordering next_lex;
     };
 
     std::vector<int> n_digits_;
@@ -28,45 +23,47 @@ class NumberCounter {
         return (pos * (pos + 1)) / 2 + len;
     }
 
-    u64 dp_at(usize pos, int rem, usize len, LexState lex_state) const noexcept {
+    constexpr usize lex_to_idx(std::strong_ordering state) const noexcept {
+        if (state < 0) return 2; // Less
+        if (state == 0) return 1; // Equal
+        return 0;                 // Greater
+    }
+
+    u64 dp_at(usize pos, int rem, usize len, std::strong_ordering lex_state) const noexcept {
         const usize pair_idx = pair_index(pos, len);
-        const usize lex_idx = static_cast<usize>(lex_state);
+        const usize lex_idx = lex_to_idx(lex_state);
 
         return dp_[(pair_idx * static_cast<usize>(m_) + rem) * 3 + lex_idx];
     }
 
-    u64& dp_at_mut(usize pos, int rem, usize len, LexState lex_state) noexcept {
+    u64& dp_at_mut(usize pos, int rem, usize len, std::strong_ordering lex_state) noexcept {
         const usize pair_idx = pair_index(pos, len);
-        const usize lex_idx = static_cast<usize>(lex_state);
+        const usize lex_idx = lex_to_idx(lex_state);
 
         return dp_[(pair_idx * static_cast<usize>(m_) + rem) * 3 + lex_idx];
     }
 
-    static constexpr LexState next_lex_state(int d, int target, LexState state) noexcept {
-        if (state != LexState::Equal) 
+    static constexpr std::strong_ordering next_lex_state(int d, int target, std::strong_ordering state) noexcept {
+        if (state != 0) 
             return state;
-        if (d < target)  
-            return LexState::Less;
-        if (d == target) 
-            return LexState::Equal;
-
-        return LexState::Greater;
+        
+        return d <=> target;
     }
 
-    Transition transit(int d, usize len, LexState state) const noexcept {
+    Transition transit(int d, usize len, std::strong_ordering state) const noexcept {
         if (len == 0) {
-            return (d > 0) ? Transition{1, next_lex_state(d, n_digits_[0], LexState::Equal)}
+            return (d > 0) ? Transition{1, next_lex_state(d, n_digits_[0], std::strong_ordering::equal)}
                            : Transition{0, state};
         }
         return {len + 1, next_lex_state(d, n_digits_[len], state)};
     }
 
-    u64 check_terminal(usize len, int rem, LexState lex, bool is_less_num) const noexcept {
+    u64 check_terminal(usize len, int rem, std::strong_ordering lex, bool is_less_num) const noexcept {
         if (len == 0 || rem != 0 || !is_less_num) 
             return 0;
-        const bool is_strict_prefix = (lex == LexState::Equal && len < length_);
+        const bool is_strict_prefix = (lex == 0 && len < length_);
         
-        return (lex == LexState::Less || is_strict_prefix) ? 1 : 0;
+        return (lex < 0 || is_strict_prefix) ? 1 : 0;
     }
 
 public:
@@ -89,7 +86,11 @@ public:
             for (usize len = 0; len <= pos; ++len) {
                 for (int rem = 0; rem < m_; ++rem) {
                     for (int lex_i = 0; lex_i < 3; ++lex_i) {
-                        const LexState lex_state = static_cast<LexState>(lex_i);
+                        std::strong_ordering lex_state = 
+                            (lex_i == 2) ? std::strong_ordering::less :
+                            (lex_i == 1) ? std::strong_ordering::equal : 
+                                           std::strong_ordering::greater;
+
                         u64 total_ways = 0;
 
                         for (int d = 0; d <= 9; ++d) {
@@ -115,12 +116,12 @@ public:
             usize pos;
             int rem;
             usize len;
-            LexState lex;
+            std::strong_ordering lex;
             bool is_less;
         };
 
         std::vector<State> current_states;
-        current_states.push_back({0, 0, 0, LexState::Equal, false});
+        current_states.push_back({0, 0, 0, std::strong_ordering::equal, false});
 
         for (usize pos = 0; pos < length_; ++pos) {
             std::vector<State> next_states;
